@@ -14,23 +14,15 @@ const MountainSVG = ({ progress, mountainName, bouncing, showAdOverlay, onAdClic
     <div className={`relative w-full ${bouncing ? "mountain-bounce" : ""}`}>
       <svg viewBox="0 0 320 300" className="w-full" style={{ maxHeight: 340 }}>
         <defs>
-          {/* Main mountain clip */}
           <clipPath id="mainClip">
             <path d="M160,40 Q165,38 170,42 L280,250 Q282,254 278,256 L42,256 Q38,254 40,250 Z" />
           </clipPath>
-          {/* Left small mountain clip */}
           <clipPath id="leftClip">
             <path d="M60,160 Q63,157 66,160 L110,256 L10,256 Z" />
           </clipPath>
-          {/* Right small mountain clip */}
           <clipPath id="rightClip">
             <path d="M255,175 Q258,172 261,175 L300,256 L215,256 Z" />
           </clipPath>
-          {/* Snow cap */}
-          <clipPath id="snowClip">
-            <path d="M160,40 Q165,38 170,42 L188,80 Q170,90 150,90 L132,80 Z" />
-          </clipPath>
-          {/* Cloud filter */}
           <filter id="cloudShadow">
             <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#000" floodOpacity="0.05"/>
           </filter>
@@ -49,59 +41,28 @@ const MountainSVG = ({ progress, mountainName, bouncing, showAdOverlay, onAdClic
         </g>
 
         {/* Left small mountain - base */}
-        <path d="M60,160 Q63,157 66,160 L110,256 L10,256 Z" fill="hsl(214 40% 82%)" />
-        <rect x="0" y={fillY} width="320" height={300 - fillY} clipPath="url(#leftClip)" fill="hsl(214 80% 65%)" />
+        <path d="M60,160 Q63,157 66,160 L110,256 L10,256 Z" fill="hsl(145 30% 80%)" opacity="0.6" />
+        <rect x="0" y={fillY} width="320" height={300 - fillY} clipPath="url(#leftClip)" fill="hsl(145 50% 55%)" />
 
         {/* Right small mountain - base */}
-        <path d="M255,175 Q258,172 261,175 L300,256 L215,256 Z" fill="hsl(214 40% 82%)" />
-        <rect x="0" y={fillY} width="320" height={300 - fillY} clipPath="url(#rightClip)" fill="hsl(214 80% 65%)" />
+        <path d="M255,175 Q258,172 261,175 L300,256 L215,256 Z" fill="hsl(145 30% 80%)" opacity="0.6" />
+        <rect x="0" y={fillY} width="320" height={300 - fillY} clipPath="url(#rightClip)" fill="hsl(145 50% 55%)" />
 
-        {/* Main mountain - base (soft rounded) */}
-        <path d="M160,40 Q165,38 170,42 L280,250 Q282,254 278,256 L42,256 Q38,254 40,250 Z" fill="hsl(214 40% 82%)" />
+        {/* Main mountain - base */}
+        <path d="M160,40 Q165,38 170,42 L280,250 Q282,254 278,256 L42,256 Q38,254 40,250 Z" fill="hsl(145 25% 82%)" opacity="0.5" />
         {/* Main mountain - filled portion */}
-        <rect x="0" y={fillY} width="320" height={300 - fillY} clipPath="url(#mainClip)" fill="hsl(214 91% 58%)" />
+        <rect x="0" y={fillY} width="320" height={300 - fillY} clipPath="url(#mainClip)" fill="hsl(145 55% 48%)" />
 
         {/* Snow cap */}
         <path d="M160,40 Q165,38 170,42 L188,80 Q175,92 160,94 Q145,92 132,80 Z" fill="white" />
-        <path d="M132,80 Q140,88 148,82 Q155,90 160,94 Q145,92 132,80Z" fill="hsl(214 30% 92%)" opacity="0.5"/>
+        <path d="M132,80 Q140,88 148,82 Q155,90 160,94 Q145,92 132,80Z" fill="hsl(145 20% 92%)" opacity="0.5"/>
 
         {/* Flag at summit */}
         <line x1="160" y1="28" x2="160" y2="42" stroke="hsl(0 70% 55%)" strokeWidth="1.5"/>
         <path d="M160,28 L175,33 L160,38" fill="hsl(0 70% 55%)" />
 
-        {/* Trees on main mountain */}
-        {progress < 0.85 && (
-          <>
-            <g transform="translate(110, 210)">
-              <polygon points="0,-18 -8,0 8,0" fill="hsl(145 45% 55%)" />
-              <polygon points="0,-12 -6,0 6,0" fill="hsl(145 50% 48%)" transform="translate(0,-6)"/>
-              <rect x="-1.5" y="0" width="3" height="5" fill="hsl(30 40% 45%)" rx="0.5"/>
-            </g>
-            <g transform="translate(200, 215)">
-              <polygon points="0,-16 -7,0 7,0" fill="hsl(145 45% 55%)" />
-              <polygon points="0,-10 -5,0 5,0" fill="hsl(145 50% 48%)" transform="translate(0,-5)"/>
-              <rect x="-1.5" y="0" width="3" height="5" fill="hsl(30 40% 45%)" rx="0.5"/>
-            </g>
-            <g transform="translate(150, 225)">
-              <polygon points="0,-14 -6,0 6,0" fill="hsl(145 40% 50%)" />
-              <polygon points="0,-9 -4,0 4,0" fill="hsl(145 45% 45%)" transform="translate(0,-4)"/>
-              <rect x="-1" y="0" width="2" height="4" fill="hsl(30 40% 45%)" rx="0.5"/>
-            </g>
-          </>
-        )}
-
-        {/* Trees on left mountain */}
-        <g transform="translate(50, 230)">
-          <polygon points="0,-12 -5,0 5,0" fill="hsl(145 40% 58%)" />
-          <rect x="-1" y="0" width="2" height="4" fill="hsl(30 40% 45%)" rx="0.5"/>
-        </g>
-        <g transform="translate(75, 235)">
-          <polygon points="0,-10 -4,0 4,0" fill="hsl(145 40% 55%)" />
-          <rect x="-1" y="0" width="2" height="3" fill="hsl(30 40% 45%)" rx="0.5"/>
-        </g>
-
-        {/* Mountain name */}
-        <text x="160" y="200" textAnchor="middle" fill="white" fontSize="16" fontWeight="700" opacity="0.95">
+        {/* Mountain name - centered, large, black */}
+        <text x="160" y="195" textAnchor="middle" fill="hsl(220 20% 15%)" fontSize="22" fontWeight="800" opacity="0.9">
           {mountainName}
         </text>
 
