@@ -13,6 +13,9 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ['"Noto Sans KR"', 'sans-serif'],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -22,6 +25,11 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+        },
+        mountain: {
+          fill: "hsl(var(--mountain-fill))",
+          unfilled: "hsl(var(--mountain-unfilled))",
+          snow: "hsl(var(--mountain-snow))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
