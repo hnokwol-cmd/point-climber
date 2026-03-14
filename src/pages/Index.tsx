@@ -82,8 +82,8 @@ const Index = () => {
   const handleSummitClose = useCallback(() => {
     setSummitSheet(false);
     if (!isLastStage) {
-      setStageIdx((i) => i + 1);
       setAltitude(0);
+      setStageIdx((i) => i + 1);
     }
   }, [isLastStage]);
 
