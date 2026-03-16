@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button, BottomSheet, Badge, Paragraph, TextButton, IconButton } from '@toss/tds-mobile'
 import { generateHapticFeedback, Storage, getServerTime, loadFullScreenAd, showFullScreenAd, graniteEvent, setIosSwipeGestureEnabled, TossAds, appLogin, SafeAreaInsets } from '@apps-in-toss/web-framework'
 import { colors } from '@toss/tds-colors'
@@ -6,10 +6,11 @@ import { functionsInstance } from '../firebase/init'
 import { httpsCallable } from 'firebase/functions'
 import IntroPage from '../IntroPage'
 import '../App.css'
+
 const AD_GROUP_ID = 'ait-ad-test-rewarded-id'
 const BANNER_AD_ID = 'ait-ad-test-banner-id'
 const STORAGE_KEY = 'treasurehunt'
-// ── 토스 공식 아이콘 URL ──
+
 const ICON_DIAMOND = 'https://static.toss.im/icons/png/4x/icon-diamond-blue-fill.png'
 const ICON_TROPHY = 'https://static.toss.im/icons/png/4x/icn-trophy-color.png'
 const ICON_CLOUD = 'https://static.toss.im/icons/png/4x/icon-emoji-cloud.png'
@@ -18,6 +19,7 @@ const ICON_PARTY = 'https://static.toss.im/icons/png/4x/icon-emoji-party-popper-
 const ICON_MOUNTAIN_NEXT = 'https://static.toss.im/icons/png/4x/icon-mountain-fill.png'
 const TOSSFACE_CALENDAR = 'https://static.toss.im/2d-emojis/png/4x/u1F4C5.png'
 const TOSSFACE_DIAMOND = 'https://static.toss.im/2d-emojis/png/4x/u1F48E.png'
+
 const STAGES = [
   { name: '남산',   max: 250,  bonus: 3   },
   { name: '관악산', max: 650,  bonus: 10  },
@@ -25,6 +27,7 @@ const STAGES = [
   { name: '지리산', max: 1900, bonus: 25  },
   { name: '백두산', max: 2750, bonus: 40  },
 ]
+
 interface State {
   alt: number
   pts: number
@@ -37,18 +40,22 @@ interface State {
   lastDate: string
   nextTreasure: number
 }
+
 const defaultState: State = {
   alt: 0, pts: 0, todayPts: 0, stage: 0,
   waiting: false, summitDone: false, allDone: false,
   attendDate: '', lastDate: '',
   nextTreasure: 0,
 }
+
 function randomTreasureGap(): number {
   return Math.floor(Math.random() * 16) + 15
 }
+
 function calcNextTreasure(currentAlt: number): number {
   return currentAlt + randomTreasureGap()
 }
+
 async function getToday(): Promise<string> {
   try {
     if (getServerTime.isSupported()) {
@@ -58,6 +65,7 @@ async function getToday(): Promise<string> {
   } catch {}
   return new Date().toISOString().slice(0, 10)
 }
+
 async function loadState(): Promise<State> {
   try {
     const today = await getToday()
@@ -81,6 +89,7 @@ async function loadState(): Promise<State> {
     return { ...defaultState, lastDate: new Date().toISOString().slice(0, 10), nextTreasure: calcNextTreasure(0) }
   }
 }
+
 async function loadFromCloud(key: number): Promise<State | null> {
   try {
     const loadGameDataFn = httpsCallable<{ userKey: number }, { gameState: State | null }>(functionsInstance, 'loadGameData')
@@ -95,6 +104,38 @@ async function loadFromCloud(key: number): Promise<State | null> {
   }
   return null
 }
+
+// ── 개선 1: 광고 표시 + 복원 공통 함수 ──
+// handleAdClick, handleSummitNext, doAttendance에서 반복되던 패턴을 하나로 통합
+function showRewardedAd(onReward: () => void, onDone: () => void) {
+  const unregisterBack = graniteEvent.addEventListener('backEvent', { onEvent: () => {} })
+  try { setIosSwipeGestureEnabled({ isEnabled: false }) } catch {}
+
+  showFullScreenAd({
+    options: { adGroupId: AD_GROUP_ID },
+    onEvent: (event) => {
+      switch (event.type) {
+        case 'userEarnedReward':
+          onReward()
+          break
+        case 'dismissed':
+        case 'failedToShow':
+          break
+      }
+      // 모든 이벤트 후 공통 정리
+      unregisterBack()
+      try { setIosSwipeGestureEnabled({ isEnabled: true }) } catch {}
+      onDone()
+    },
+    onError: (err) => {
+      console.error('광고 노출 실패:', err)
+      unregisterBack()
+      try { setIosSwipeGestureEnabled({ isEnabled: true }) } catch {}
+      onDone()
+    },
+  })
+}
+
 export default function App() {
   const [state, setState] = useState<State>(defaultState)
   const [today, setToday] = useState('')
@@ -114,6 +155,7 @@ export default function App() {
   const [coins, setCoins] = useState<{id:number,x:number,y:number,fly:number}[]>([])
   const [rewardText, setRewardText] = useState(false)
   const [safeArea, setSafeArea] = useState(() => SafeAreaInsets.get())
+
   const wrapRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const bannerRef = useRef<HTMLDivElement>(null)
@@ -122,12 +164,19 @@ export default function App() {
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const userKeyRef = useRef<number | null>(null)
   const adDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 개선 2: stale closure 방지를 위한 ref
+  const stateRef = useRef(state)
+  useEffect(() => { stateRef.current = state }, [state])
+  const todayRef = useRef(today)
+  useEffect(() => { todayRef.current = today }, [today])
+
   useEffect(() => { userKeyRef.current = userKey }, [userKey])
+
   useEffect(() => {
     const cleanup = SafeAreaInsets.subscribe({ onEvent: (insets) => setSafeArea(insets) })
     return () => cleanup()
   }, [])
-  // Fix 3: 광고 미로드 10초 후에만 "쉬어가요" 표시 + 클릭 차단
+
   useEffect(() => {
     if (isAdLoaded) {
       if (adDelayTimerRef.current) clearTimeout(adDelayTimerRef.current)
@@ -141,6 +190,7 @@ export default function App() {
       if (adDelayTimerRef.current) clearTimeout(adDelayTimerRef.current)
     }
   }, [isAdLoaded])
+
   function syncToCloud(stateToSync: State & { lastDate: string }) {
     const key = userKeyRef.current
     if (!key) return
@@ -154,6 +204,20 @@ export default function App() {
       }
     }, 2000)
   }
+
+  // 개선 3: save가 async인데 await 안 하는 문제 해결
+  // setState 업데이터 패턴으로 항상 최신 state 기반으로 저장
+  const save = useCallback(async (updater: (prev: State) => State) => {
+    const currentToday = todayRef.current || await getToday()
+    setState(prev => {
+      const newState = updater(prev)
+      const stateToSave = { ...newState, lastDate: currentToday }
+      Storage.setItem(STORAGE_KEY, JSON.stringify(stateToSave))
+      syncToCloud(stateToSave)
+      return newState
+    })
+  }, [])
+
   async function handleTossLogin() {
     setLoginLoading(true)
     setLoginError('')
@@ -188,6 +252,7 @@ export default function App() {
       setLoginLoading(false)
     }
   }
+
   useEffect(() => {
     loadState().then((loaded) => { setState(loaded); setToday(loaded.lastDate) })
     Storage.getItem('userKey').then(async (saved) => {
@@ -210,6 +275,7 @@ export default function App() {
       }
     }).catch(() => { setShowIntro(true) })
   }, [])
+
   useEffect(() => {
     if (!loadFullScreenAd.isSupported()) return
     const unregister = loadFullScreenAd({
@@ -219,6 +285,7 @@ export default function App() {
     })
     return () => unregister()
   }, [])
+
   useEffect(() => {
     if (!TossAds.initialize.isSupported()) return
     TossAds.initialize({
@@ -229,6 +296,7 @@ export default function App() {
     })
     return () => { TossAds.destroyAll?.() }
   }, [])
+
   useEffect(() => {
     if (!bannerInitialized || !bannerRef.current) return
     if (!TossAds.attachBanner.isSupported()) return
@@ -243,9 +311,11 @@ export default function App() {
     })
     return () => attached?.destroy()
   }, [bannerInitialized])
+
   const s = STAGES[state.stage]
   const isLast = state.stage >= STAGES.length - 1
   const next = STAGES[state.stage + 1]
+
   function loadNextAd() {
     if (!loadFullScreenAd.isSupported()) return
     setIsAdLoaded(false)
@@ -255,20 +325,7 @@ export default function App() {
       onError: (err) => console.error('다음 광고 로드 실패:', err),
     })
   }
-  function restoreAfterAd(unregisterBack: () => void) {
-    unregisterBack()
-    try { setIosSwipeGestureEnabled({ isEnabled: true }) } catch {}
-    setAdWaiting(false)
-    loadNextAd()
-  }
-  async function save(newState: State) {
-    const currentToday = today || await getToday()
-    const stateToSave = { ...newState, lastDate: currentToday }
-    await Storage.setItem(STORAGE_KEY, JSON.stringify(stateToSave))
-    setState(newState)
-    syncToCloud(stateToSave)
-  }
-  // 보물 발견 애니메이션 — 동전 + "+1 보물" 텍스트
+
   function spawnCoins() {
     if (!wrapRef.current || !svgRef.current) return
     const svgRect = svgRef.current.getBoundingClientRect()
@@ -286,7 +343,7 @@ export default function App() {
     setTimeout(() => setCoins([]), 1200)
     setTimeout(() => setRewardText(false), 1200)
   }
-  // Fix 3: adLoadDelayed일 때 클릭 차단
+
   function handleClick() {
     const now = Date.now()
     if (now - lastClickRef.current < 50) return
@@ -299,102 +356,99 @@ export default function App() {
     if (newAlt >= state.nextTreasure && newAlt < s.max) {
       spawnCoins()
       const nextTarget = calcNextTreasure(newAlt)
-      setTimeout(() => save({ ...state, alt: newAlt, waiting: true, nextTreasure: nextTarget }), 250)
+      setTimeout(() => save(prev => ({ ...prev, alt: newAlt, waiting: true, nextTreasure: nextTarget })), 250)
       return
     }
     if (newAlt >= s.max) {
-      save({ ...state, alt: newAlt })
+      save(prev => ({ ...prev, alt: newAlt }))
       setSummitModal(true)
       return
     }
-    save({ ...state, alt: newAlt })
+    save(prev => ({ ...prev, alt: newAlt }))
   }
+
+  // 개선 1: 광고 콜백 공통화 — 보상 로직만 다르게 전달
   function handleAdClick() {
     if (adWaiting || !isAdLoaded) return
     setAdWaiting(true)
-    const unregisterBack = graniteEvent.addEventListener('backEvent', { onEvent: () => {} })
-    try { setIosSwipeGestureEnabled({ isEnabled: false }) } catch {}
-    showFullScreenAd({
-      options: { adGroupId: AD_GROUP_ID },
-      onEvent: (event) => {
-        switch (event.type) {
-          case 'userEarnedReward':
-            if (state.summitDone) {
-              save({ ...state, stage: state.stage + 1, alt: 0, waiting: false, summitDone: false, nextTreasure: calcNextTreasure(0) })
-            } else {
-              const ns = { ...state, pts: state.pts + 1, todayPts: state.todayPts + 1, waiting: false }
-              generateHapticFeedback({ type: 'success' })
-              spawnCoins()
-              if (state.alt >= s.max) { save(ns); setSummitModal(true); restoreAfterAd(unregisterBack); return }
-              save(ns)
-            }
-            restoreAfterAd(unregisterBack)
-            break
-          case 'dismissed': restoreAfterAd(unregisterBack); break
-          case 'failedToShow': restoreAfterAd(unregisterBack); break
+
+    showRewardedAd(
+      () => {
+        // stateRef로 최신 state 참조
+        const cur = stateRef.current
+        const curStage = STAGES[cur.stage]
+        if (cur.summitDone) {
+          save(prev => ({ ...prev, stage: prev.stage + 1, alt: 0, waiting: false, summitDone: false, nextTreasure: calcNextTreasure(0) }))
+        } else {
+          generateHapticFeedback({ type: 'success' })
+          spawnCoins()
+          if (cur.alt >= curStage.max) {
+            save(prev => ({ ...prev, pts: prev.pts + 1, todayPts: prev.todayPts + 1, waiting: false }))
+            setSummitModal(true)
+          } else {
+            save(prev => ({ ...prev, pts: prev.pts + 1, todayPts: prev.todayPts + 1, waiting: false }))
+          }
         }
       },
-      onError: (err) => { console.error('광고 노출 실패:', err); restoreAfterAd(unregisterBack) },
-    })
+      () => { setAdWaiting(false); loadNextAd() },
+    )
   }
+
   function handleSummitNext() {
     if (adWaiting || !isAdLoaded) return
     setAdWaiting(true)
-    const unregisterBack = graniteEvent.addEventListener('backEvent', { onEvent: () => {} })
-    try { setIosSwipeGestureEnabled({ isEnabled: false }) } catch {}
-    showFullScreenAd({
-      options: { adGroupId: AD_GROUP_ID },
-      onEvent: (event) => {
-        switch (event.type) {
-          case 'userEarnedReward':
-            save({ ...state, stage: state.stage + 1, alt: 0, waiting: false, summitDone: false, pts: state.pts + s.bonus, todayPts: state.todayPts + s.bonus, nextTreasure: calcNextTreasure(0) })
-            setSummitModal(false)
-            generateHapticFeedback({ type: 'success' })
-            restoreAfterAd(unregisterBack)
-            break
-          case 'dismissed': restoreAfterAd(unregisterBack); break
-          case 'failedToShow': restoreAfterAd(unregisterBack); break
-        }
+
+    showRewardedAd(
+      () => {
+        const curStage = STAGES[stateRef.current.stage]
+        save(prev => ({
+          ...prev,
+          stage: prev.stage + 1, alt: 0, waiting: false, summitDone: false,
+          pts: prev.pts + curStage.bonus, todayPts: prev.todayPts + curStage.bonus,
+          nextTreasure: calcNextTreasure(0),
+        }))
+        setSummitModal(false)
+        generateHapticFeedback({ type: 'success' })
       },
-      onError: (err) => { console.error('광고 노출 실패:', err); restoreAfterAd(unregisterBack) },
-    })
+      () => { setAdWaiting(false); loadNextAd() },
+    )
   }
+
   function handleSummitClose() {
-    if (isLast) { save({ ...state, allDone: true, pts: state.pts + s.bonus, todayPts: state.todayPts + s.bonus }) }
-    else { save({ ...state, summitDone: true, pts: state.pts + s.bonus, todayPts: state.todayPts + s.bonus }) }
+    if (isLast) {
+      save(prev => ({ ...prev, allDone: true, pts: prev.pts + s.bonus, todayPts: prev.todayPts + s.bonus }))
+    } else {
+      save(prev => ({ ...prev, summitDone: true, pts: prev.pts + s.bonus, todayPts: prev.todayPts + s.bonus }))
+    }
     setSummitModal(false)
   }
+
   function doAttendance() {
     if (adWaiting || !isAdLoaded) return
     setAdWaiting(true)
-    const unregisterBack = graniteEvent.addEventListener('backEvent', { onEvent: () => {} })
-    try { setIosSwipeGestureEnabled({ isEnabled: false }) } catch {}
-    showFullScreenAd({
-      options: { adGroupId: AD_GROUP_ID },
-      onEvent: (event) => {
-        switch (event.type) {
-          case 'userEarnedReward':
-            save({ ...state, pts: state.pts + 1, todayPts: state.todayPts + 1, attendDate: today })
-            setAttendModal(false)
-            generateHapticFeedback({ type: 'success' })
-            spawnCoins()
-            restoreAfterAd(unregisterBack)
-            break
-          case 'dismissed': restoreAfterAd(unregisterBack); break
-          case 'failedToShow': restoreAfterAd(unregisterBack); break
-        }
+
+    showRewardedAd(
+      () => {
+        save(prev => ({ ...prev, pts: prev.pts + 1, todayPts: prev.todayPts + 1, attendDate: todayRef.current }))
+        setAttendModal(false)
+        generateHapticFeedback({ type: 'success' })
+        spawnCoins()
       },
-      onError: (err) => { console.error('광고 노출 실패:', err); restoreAfterAd(unregisterBack) },
-    })
+      () => { setAdWaiting(false); loadNextAd() },
+    )
   }
+
   // DEV 함수 (출시 전 제거 예정)
-  function devJump() { save({ ...state, stage: 4, alt: 2700, waiting: false, summitDone: false, allDone: false, nextTreasure: calcNextTreasure(2700) }) }
-  function devReset() { save({ ...defaultState, lastDate: today, nextTreasure: calcNextTreasure(0) }) }
+  function devJump() { save(prev => ({ ...prev, stage: 4, alt: 2700, waiting: false, summitDone: false, allDone: false, nextTreasure: calcNextTreasure(2700) })) }
+  function devReset() { save(() => ({ ...defaultState, lastDate: todayRef.current, nextTreasure: calcNextTreasure(0) })) }
+
   const fillH = Math.min(state.alt / s.max, 1) * 200
   const fillY = 280 - fillH
+
   if (showIntro) {
     return <IntroPage onStart={handleTossLogin} isLoading={loginLoading} error={loginError} />
   }
+
   return (
     <div ref={wrapRef} style={{maxWidth:390,margin:'0 auto',background:colors.grey50,minHeight:'100vh',padding:`16px 20px ${safeArea.bottom+40}px`,display:'flex',flexDirection:'column',alignItems:'center',position:'relative'}}>
       <style>{`
@@ -407,13 +461,11 @@ export default function App() {
         @keyframes floatAnim{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
         @keyframes bounceAnim{0%{transform:scale(1)}50%{transform:scale(1.04) translateY(-5px)}100%{transform:scale(1)}}
       `}</style>
-      {/* 보물 발견 — 동전 애니메이션 (크기 확대) */}
       {coins.map(c => (
         <div key={c.id} style={{position:'absolute',left:c.x,top:c.y,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none',zIndex:50,animation:`coinFly${c.fly} 1s ease-out forwards`}}>
           <img src={ICON_DIAMOND} width={32} height={32} alt="" />
         </div>
       ))}
-      {/* 보물 발견 — "+1 보물" 텍스트 팝업 */}
       {rewardText && svgRef.current && wrapRef.current && (() => {
         const svgRect = svgRef.current!.getBoundingClientRect()
         const wRect = wrapRef.current!.getBoundingClientRect()
@@ -426,7 +478,6 @@ export default function App() {
           </div>
         )
       })()}
-      {/* 상단 보물 배지 */}
       <div style={{background:'white',borderRadius:999,padding:'8px 16px',display:'flex',alignItems:'center',gap:8,marginBottom:14,boxShadow:`0 2px 12px ${colors.greyOpacity100}`}}>
         <Badge size="small" color="blue" variant="fill"><img src={TOSSFACE_DIAMOND} width={14} height={14} alt="" style={{verticalAlign:'middle',display:'block'}} /></Badge>
         <Paragraph typography="t6" fontWeight="medium" color={colors.grey900}>
@@ -435,7 +486,6 @@ export default function App() {
           <Paragraph.Text> 보물을 찾았어요</Paragraph.Text>
         </Paragraph>
       </div>
-      {/* 산 카드 */}
       <div style={{width:'100%',borderRadius:20,padding:'16px 16px 12px',marginBottom:8,background:`linear-gradient(180deg,${colors.blue50} 0%,${colors.blue100} 100%)`,position:'relative'}}>
         <div style={{textAlign:'center',marginBottom:6}}>
           <Paragraph typography="t2" fontWeight="bold" color={colors.grey900} textAlign="center">
@@ -498,7 +548,6 @@ export default function App() {
             <Paragraph.Text>나의 위치 {state.alt.toLocaleString()}M</Paragraph.Text>
           </Paragraph>
         </div>
-        {/* Fix 3: adLoadDelayed일 때만 쉬어가요 표시 */}
         {!state.waiting && !state.summitDone && !state.allDone && (
           <div style={{display:'flex',justifyContent:'center',marginTop:8}}>
             <div style={{background:'white',borderRadius:14,padding:'6px 16px',display:'inline-flex',flexDirection:'column',alignItems:'center',gap:2,boxShadow:`0 2px 12px ${colors.greyOpacity100}`}}>
@@ -525,9 +574,7 @@ export default function App() {
           </div>
         )}
       </div>
-      {/* 배너 광고 */}
       <div ref={bannerRef} style={{width:'100%',height:96,marginBottom:10}} />
-      {/* 출석체크 + 다음 목적지 */}
       <div style={{width:'100%',display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
         <div onClick={()=>state.attendDate!==today&&setAttendModal(true)} style={{background:'white',borderRadius:12,padding:'11px 14px',boxShadow:`0 2px 12px ${colors.greyOpacity100}`,cursor:state.attendDate===today?'default':'pointer'}}>
           <Paragraph typography="st13" fontWeight="medium" color={colors.grey500}>
@@ -556,7 +603,6 @@ export default function App() {
           </div>
         </div>
       </div>
-      {/* 보물상자 */}
       <div onClick={() => setExchangeModal(true)} style={{width:'100%',background:'white',borderRadius:12,padding:'11px 14px',display:'flex',alignItems:'center',gap:10,boxShadow:`0 2px 12px ${colors.greyOpacity100}`,cursor:'pointer'}}>
         <div style={{width:32,height:32,borderRadius:9,background:colors.blue50,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
           <img src={ICON_GIFT} width={24} height={24} alt="" />
@@ -576,7 +622,6 @@ export default function App() {
         <button onClick={devJump} style={{background:colors.grey900,color:'white',border:'none',borderRadius:10,padding:'8px 16px',fontSize:11,fontWeight:600,cursor:'pointer',opacity:0.4}}>🛠 백두산 2700M</button>
         <button onClick={devReset} style={{background:colors.red500,color:'white',border:'none',borderRadius:10,padding:'8px 16px',fontSize:11,fontWeight:600,cursor:'pointer',opacity:0.4}}>🔄 리셋</button>
       </div>
-      {/* 정상 도착 BottomSheet */}
       <BottomSheet open={summitModal} onClose={handleSummitClose}
         header={<BottomSheet.Header>{isLast ? <span style={{display:'inline-flex',alignItems:'center',gap:6}}>모든 산 완등! <img src={ICON_TROPHY} width={22} height={22} alt="" /></span> : <span style={{display:'inline-flex',alignItems:'center',gap:6}}>정상 도착! <img src={ICON_PARTY} width={22} height={22} alt="" /></span>}</BottomSheet.Header>}
         headerDescription={<BottomSheet.HeaderDescription>{s.name} {s.max.toLocaleString()}M 등반 완료</BottomSheet.HeaderDescription>}
@@ -592,7 +637,6 @@ export default function App() {
           <Badge size="large" color="blue" variant="fill">+{s.bonus} 보너스 보물</Badge>
         </div>
       </BottomSheet>
-      {/* 출석체크 BottomSheet */}
       <BottomSheet open={attendModal} onClose={() => setAttendModal(false)}
         header={<BottomSheet.Header><span style={{display:'inline-flex',alignItems:'center',gap:6}}>출석체크 <img src={TOSSFACE_CALENDAR} width={22} height={22} alt="" /></span></BottomSheet.Header>}
         headerDescription={<BottomSheet.HeaderDescription>출석 체크하고 보물을 받으세요!</BottomSheet.HeaderDescription>}
@@ -609,7 +653,6 @@ export default function App() {
           </Paragraph>
         </div>
       </BottomSheet>
-      {/* 교환 BottomSheet */}
       <BottomSheet open={exchangeModal} onClose={() => setExchangeModal(false)}
         header={<BottomSheet.Header><span style={{display:'inline-flex',alignItems:'center',gap:6}}>보물 교환 <img src={ICON_GIFT} width={22} height={22} alt="" /></span></BottomSheet.Header>}
         headerDescription={<BottomSheet.HeaderDescription>모은 보물을 토스 포인트로 교환해요</BottomSheet.HeaderDescription>}
